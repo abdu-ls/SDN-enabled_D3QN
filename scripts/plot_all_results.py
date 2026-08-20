@@ -1,42 +1,5 @@
 """
-plot_all_results.py
-===================
-Generates figures from the SCALABILITY experiment outputs
-(summary_results.csv / significance.csv / results_N{N}_{Agent}.csv /
-convergence_N{N}.csv), matching the schema produced by the current
-scaled_exp.py.
-
-NOTE: this replaces the previous version of this file, which was written
-for an older, single-N experiment (it expected files like
-"results_Standard_DQN.csv" and "convergence_data.csv" with a totally
-different column layout). None of that matches what scaled_exp.py now
-produces, so it would have crashed or silently plotted nothing useful.
-
-Run AFTER scaled_exp.py has completed, from the folder containing:
-    summary_results.csv, significance.csv,
-    results_N20/40/60_{Agent}.csv, convergence_N20/40/60.csv
-
-Figures produced:
-    fig1_convergence.pdf         convergence curves, one subplot per N,
-                                  mean +/- 95% CI ACROSS SEEDS (not
-                                  within-episode noise)
-    fig2_energy_scaling.pdf      energy vs N, all 4 algorithms,
-                                  error bars = cross-seed 95% CI
-    fig3_violation_scaling.pdf   overall violation rate vs N,
-                                  error bars = cross-seed 95% CI
-    fig4_latency_scaling.pdf     latency vs N, error bars = cross-seed 95% CI
-    fig5_tier1_scaling.pdf       Tier-1 violation rate vs N,
-                                  error bars = cross-seed 95% CI
-                                  (recomputed per-seed from raw eval files,
-                                  since the summary only carries a CI for
-                                  the *overall* violation rate)
-    fig6_energy_bar_N20.pdf      energy bar chart, snapshot at N=20
-    fig7_latency_cdf_N60.pdf     latency CDF, snapshot at N=60 (most loaded)
-    fig8_tier_violations_N60.pdf violations by tier, snapshot at N=60
-    fig9_significance.pdf        Dueling vs Standard DQN paired Wilcoxon
-                                  p-values across N (energy & violation)
-
-All figures saved as PDF and PNG.
+plot_all_results.py - run to generate all graphs
 """
 
 import pandas as pd
@@ -47,7 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
-# ── Style ─────────────────────────────────────────────────────────────────────
+# Style
 sns.set_theme(style="whitegrid", font_scale=1.1)
 COLORS  = {"Dueling DQN": "#028090", "Standard DQN": "#ff7f0e",
            "Greedy": "#d62728", "Round-Robin": "#2ca02c"}
@@ -56,7 +19,7 @@ STYLES  = {"Dueling DQN": "-", "Standard DQN": "--",
            "Greedy": "-.", "Round-Robin": ":"}
 MARKERS = {"Dueling DQN": "o", "Standard DQN": "s",
            "Greedy": "^", "Round-Robin": "D"}
-N_TEST_TASKS = 1000  # must match N_TEST_TASKS in scaled_exp.py
+N_TEST_TASKS = 1000  
 
 # Maps algorithm display name -> filename fragment actually used on disk
 # (note "Standard DQN" -> "Std_DQN", not "Standard_DQN")
@@ -88,9 +51,7 @@ def mean_ci95(values):
     return mean, ci95
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # LOAD DATA
-# ══════════════════════════════════════════════════════════════════════════════
 print("Loading summary + significance...")
 summary_df = pd.read_csv("summary_results.csv")
 sig_df     = pd.read_csv("significance.csv")
@@ -102,11 +63,6 @@ for N in DEVICE_COUNTS:
     for agent in AGENTS:
         fname = f"results_N{N}_{FILE_TAG[agent]}.csv"
         df = pd.read_csv(fname)
-        # Per-task files are seed blocks concatenated in seed order
-        # (seed 0's N_TEST_TASKS rows, then seed 1's, ...). Recover the
-        # seed index from row position so we can compute cross-seed CIs
-        # for metrics (like Tier-1 violation rate) that summary_results.csv
-        # doesn't already carry a CI for.
         df["Seed"] = df.index // N_TEST_TASKS
         results[N][agent] = df
 
@@ -117,9 +73,7 @@ conv_df = pd.concat(
 
 print()
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 1 — CONVERGENCE, one subplot per N, mean +/- 95% CI ACROSS SEEDS
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 1: Convergence (per N, cross-seed CI)...")
 
 
@@ -160,9 +114,7 @@ fig.suptitle("Figure 1: Training Convergence — Dueling vs Standard DQN "
 fig.tight_layout(rect=[0, 0, 1, 0.94])
 save(fig, "fig1_convergence")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 2 — ENERGY vs N  (cross-seed 95% CI error bars)
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 2: Energy scaling vs N...")
 fig, ax = plt.subplots(figsize=(8, 4.5))
 for agent in AGENTS:
@@ -181,9 +133,7 @@ ax.legend(fontsize=10)
 fig.tight_layout()
 save(fig, "fig2_energy_scaling")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 3 — OVERALL VIOLATION RATE vs N  (cross-seed 95% CI error bars)
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 3: Violation rate scaling vs N...")
 fig, ax = plt.subplots(figsize=(8, 4.5))
 for agent in AGENTS:
@@ -202,9 +152,7 @@ ax.legend(fontsize=10)
 fig.tight_layout()
 save(fig, "fig3_violation_scaling")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 4 — LATENCY vs N  (cross-seed 95% CI error bars)
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 4: Latency scaling vs N...")
 fig, ax = plt.subplots(figsize=(8, 4.5))
 for agent in AGENTS:
@@ -223,9 +171,7 @@ ax.legend(fontsize=10)
 fig.tight_layout()
 save(fig, "fig4_latency_scaling")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 5 — TIER-1 VIOLATION RATE vs N  (recomputed per-seed CI from raw data)
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 5: Tier-1 violation scaling vs N...")
 fig, ax = plt.subplots(figsize=(8, 4.5))
 for agent in AGENTS:
@@ -251,9 +197,7 @@ ax.set_ylim(-2, 105)
 fig.tight_layout()
 save(fig, "fig5_tier1_scaling")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 6 — ENERGY BAR CHART, snapshot at N = 20
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 6: Energy bar chart (N=20 snapshot)...")
 N_SNAP = 20
 means, cis = [], []
@@ -277,9 +221,7 @@ ax.set_title(f"Figure 6: Average Energy Consumption per Task (N = {N_SNAP})\n"
 fig.tight_layout()
 save(fig, "fig6_energy_bar_N20")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 7 — LATENCY CDF, snapshot at N = 60 (most-loaded condition)
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 7: Latency CDF (N=60 snapshot)...")
 N_SNAP = 60
 fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -301,9 +243,7 @@ ax.legend(fontsize=10, loc="lower right")
 fig.tight_layout()
 save(fig, "fig7_latency_cdf_N60")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 8 — VIOLATIONS BY TIER, snapshot at N = 60
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 8: Tier violations bar chart (N=60 snapshot)...")
 N_SNAP = 60
 tier_labels = ["Tier 1\n(Critical, 50 ms)", "Tier 2\n(Urgent, 100 ms)", "Tier 3\n(Routine, 5 s)"]
@@ -327,9 +267,7 @@ ax.legend(fontsize=10)
 fig.tight_layout()
 save(fig, "fig8_tier_violations_N60")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # FIGURE 9 — SIGNIFICANCE: Dueling vs Standard DQN, paired Wilcoxon p-values
-# ══════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 9: Significance summary...")
 fig, ax = plt.subplots(figsize=(8, 3.2))
 ax.axis("off")
@@ -364,9 +302,7 @@ ax.set_title("Figure 9: Dueling DQN vs Standard DQN — Paired Wilcoxon Test "
 fig.tight_layout()
 save(fig, "fig9_significance")
 
-# ══════════════════════════════════════════════════════════════════════════════
 # PRINT DATA TABLES
-# ══════════════════════════════════════════════════════════════════════════════
 print("\n" + "="*65)
 print("  DATA TABLES")
 print("="*65)
