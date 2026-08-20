@@ -1,14 +1,5 @@
 """
-agent.py  — Dueling Double DQN Agent
-=====================================
-Key fixes applied:
-  1. compute_reward() removed from this class entirely.
-     The centralised version in simulator.py is used instead.
-     Previously two compute_reward definitions existed in this file
-     (one was a duplicate with no body that shadowed the real one),
-     and the real one was missing the clipping that train.py needed.
-  2. The reward method now simply delegates to simulator.compute_reward()
-     so there is one single source of truth for reward calculation.
+dueling_agent.py  — Dueling Double DQN Agent
 """
 
 import torch
