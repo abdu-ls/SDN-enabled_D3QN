@@ -7,7 +7,7 @@ from simulator import build_environment, compute_reward
 from dueling_agent import DuelingDQNAgent
 from baselines import GreedyAgent, RoundRobinAgent, StandardDQNAgent
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration 
 N_MEC         = 3
 N_EPISODES    = 500
 TASKS_PER_EP  = 100
@@ -17,7 +17,7 @@ DEVICE_COUNTS = [20, 40, 60]
 STATE_SIZE  = 7 + N_MEC + N_MEC     # = 13
 ACTION_SIZE = 1 + N_MEC + 1         # = 5
 
-# ── Generic training loop ──────────────────────────────────────────────────────
+# Generic training loop
 def train_agent(AgentClass, n_devices, seed, algo_name, n_value):
     """
     Trains any agent for N_EPISODES using the centralised reward function.
@@ -29,7 +29,7 @@ def train_agent(AgentClass, n_devices, seed, algo_name, n_value):
     agent = AgentClass(STATE_SIZE, ACTION_SIZE)
     conv_rows = []
     
-    # ── Start Timing ──────────────────────────────────────────────────
+    # Start Timing 
     start_train_time = time.perf_counter()
     
     for episode in range(N_EPISODES):
@@ -42,7 +42,7 @@ def train_agent(AgentClass, n_devices, seed, algo_name, n_value):
             action     = agent.select_action(state)
             outcome    = controller.compute_outcome(task, action)
             
-            # ── Single centralised reward for both agents ───────────────────
+            # Single centralised reward for both agents
             reward = compute_reward(outcome, task)
             episode_reward_sum += reward
             
@@ -69,12 +69,12 @@ def train_agent(AgentClass, n_devices, seed, algo_name, n_value):
                   f"ε={agent.epsilon:.3f}  "
                   f"avg_reward={conv_rows[-1]['AvgReward']:.4f}")
                   
-    # ── End Timing ────────────────────────────────────────────────────
+    # End Timing
     train_time_sec = time.perf_counter() - start_train_time
     agent.epsilon = 0.0
     return agent, conv_rows, train_time_sec
 
-# ── Evaluation ────────────────────────────────────────────────────────────────
+# Evaluation 
 def evaluate_agent(agent, controller, devices, n_devices, n_tasks=1000):
     """
     Evaluates a trained agent over n_tasks test tasks.
@@ -88,12 +88,12 @@ def evaluate_agent(agent, controller, devices, n_devices, n_tasks=1000):
         task      = devices[device_id].generate_task()
         state     = controller.get_global_state(task)
         
-        # ── Measure Inference Latency ─────────────────────────────────
+        #  Measure Inference Latency 
         t_start = time.perf_counter()
         action  = agent.select_action(state)
         t_end   = time.perf_counter()
         inference_times_ms.append((t_end - t_start) * 1000.0)
-        # ──────────────────────────────────────────────────────────────
+        # #################
         
         outcome   = controller.compute_outcome(task, action)
         results.append({
@@ -106,7 +106,7 @@ def evaluate_agent(agent, controller, devices, n_devices, n_tasks=1000):
     mean_inf_time_ms = np.mean(inference_times_ms) if inference_times_ms else 0.0
     return pd.DataFrame(results), mean_inf_time_ms
 
-# ── Per-seed metric extraction (needed for cross-seed stats + paired test) ────
+# Per-seed metric extraction (needed for cross-seed stats + paired test)
 def seed_level_metrics(df):
     """Collapse one seed's per-task eval DataFrame into scalar summary metrics."""
     t1 = df[df.priority == 1]
@@ -129,7 +129,7 @@ def mean_ci95(values):
     ci95 = 1.96 * std / np.sqrt(n)
     return mean, std, ci95
 
-# ── Summary builder (now cross-seed, not just cross-task) ─────────────────────
+# Summary builder (now cross-seed, not just cross-task)
 def build_summary_row(name, n, combined_df, per_seed_metrics):
     """
     combined_df       : all tasks from all seeds concatenated
@@ -182,10 +182,6 @@ def build_summary_row(name, n, combined_df, per_seed_metrics):
     }
 
 def paired_wilcoxon_row(n, dueling_metrics, standard_metrics):
-    """
-    Paired-by-seed Wilcoxon signed-rank test comparing Dueling DQN vs
-    Standard DQN, for both mean energy and overall violation rate.
-    """
     row = {"N_devices": n}
     for metric_key, label in [("energy_mean", "Energy"),
                               ("viol_overall", "Violation")]:
@@ -204,7 +200,7 @@ def paired_wilcoxon_row(n, dueling_metrics, standard_metrics):
                 row[f"Wilcoxon_p_{label}"] = np.nan
     return row
 
-# ── Main experiment loop ──────────────────────────────────────────────────────
+# Main experiment loop 
 all_summary_rows = []
 all_significance_rows = []
 all_convergence_rows = []
@@ -230,22 +226,21 @@ for N in DEVICE_COUNTS:
     for seed in range(N_SEEDS):
         print(f"\n  Seed {seed + 1}/{N_SEEDS}")
         
-        # ── Train Dueling DQN (seeds 0 .. N_SEEDS-1) ──────────────────────
+        # Train Dueling DQN (seeds 0 .. N_SEEDS-1)
         print("    Training Dueling DQN...")
         d_agent, d_conv, d_train_time = train_agent(
             DuelingDQNAgent, N, seed=seed,
             algo_name="Dueling DQN", n_value=N)
         all_convergence_rows.extend(d_conv)
         
-        # ── Train Standard DQN (seeds 0 .. N_SEEDS-1) ─────────────────────
-        # FIXED: Changed from seed+50 to seed to ensure valid paired testing
+        # Train Standard DQN (seeds 0 .. N_SEEDS-1) 
         print("    Training Standard DQN...")
         s_agent, s_conv, s_train_time = train_agent(
             StandardDQNAgent, N, seed=seed, 
             algo_name="Standard DQN", n_value=N)
         all_convergence_rows.extend(s_conv)
         
-        # ── Fresh evaluation environment (seed+100) ────────────────────────
+        # Fresh evaluation environment (seed+100) 
         np.random.seed(seed + 100)
         _, devices_eval, _, controller_eval = build_environment(N, N_MEC)
         
@@ -294,7 +289,7 @@ for N in DEVICE_COUNTS:
                   f"T1={t1['violated'].mean()*100:.2f}%  "
                   f"Inf={inf_time:.4f}ms")
                   
-    # ── Save per-N CSV files and build summary ─────────────────────────────
+    # Save per-N CSV files and build summary 
     print(f"\n  Saving N={N} results...")
     for name, dfs in all_results.items():
         combined = pd.concat(dfs, ignore_index=True)
@@ -305,23 +300,23 @@ for N in DEVICE_COUNTS:
         all_summary_rows.append(
             build_summary_row(name, N, combined, per_seed_metrics[name]))
             
-    # ── Paired significance test: Dueling DQN vs Standard DQN ──────────────
+    # Paired significance test: Dueling DQN vs Standard DQN 
     all_significance_rows.append(
         paired_wilcoxon_row(N,
                             per_seed_metrics["Dueling DQN"],
                             per_seed_metrics["Standard DQN"]))
 
-# ── Save master summary ───────────────────────────────────────────────────────
+#  Save master summary 
 summary_df = pd.DataFrame(all_summary_rows)
 summary_df = summary_df.sort_values(
     ["N_devices", "Algorithm"]).reset_index(drop=True)
 summary_df.to_csv("results_summary.csv", index=False)
 
-# ── Save significance results ──────────────────────────────────────────────────
+#  Save significance results 
 significance_df = pd.DataFrame(all_significance_rows)
 significance_df.to_csv("significance.csv", index=False)
 
-# ── Save convergence log ────────────────────────────────────────────────────────
+# Save convergence log
 convergence_df = pd.DataFrame(all_convergence_rows)
 for N in DEVICE_COUNTS:
     n_conv = convergence_df[convergence_df.N_devices == N]
