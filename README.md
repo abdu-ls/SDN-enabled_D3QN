@@ -23,10 +23,7 @@ python -c "import torch, simpy, numpy, pandas, matplotlib; print('All good')"
 ********* Now order of running *************
 
 # 1. train both agents with fixed parameters
-python train.py
+python scaled_exp_time.py
 
-# 3. evaluate
-python evaluate.py
-
-# 4. generate figures
+# 2. generate figures
 python plot_results.py
