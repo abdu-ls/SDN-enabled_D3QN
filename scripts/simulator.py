@@ -1,26 +1,16 @@
 """
 simulator.py  — IoMT Discrete-Event Simulation Environment
-===========================================================
-Key fixes applied:
-  1. SNR now drives uplink transmission rate via Shannon capacity formula.
-     Previously SNR appeared in the state vector but was never used in
-     compute_outcome(). Now SNR is physically meaningful — the agent learns
-     that better channel quality means faster, cheaper offloading.
-  2. compute_reward() is centralised here and imported by all other scripts.
-     Previously three separate reward formulas existed across train.py,
-     evaluate.py, and scaled_exp.py with inconsistent clipping and missing
-     battery penalties. One function now governs all agents equally.
 """
 
 import simpy
 import numpy as np
 
-# ── Physical constants ────────────────────────────────────────────────────────
+# Physical constants 
 BANDWIDTH_HZ  = 10e6       # Uplink channel bandwidth — 10 MHz (5G NR standard)
 KAPPA         = 1e-28      # Effective switched capacitance of device CPU
 CLOUD_CPU_HZ  = 50e9       # Cloud server CPU frequency — 50 GHz
 
-# ── Physiological thresholds for priority classification ──────────────────────
+# Physiological thresholds for priority classification 
 THRESHOLDS = {
     "heart_rate":     {"lo": 40,  "hi": 150, "wlo": 45,  "whi": 120},
     "spo2":           {"lo": 90,  "hi": 101, "wlo": 92,  "whi": 95},
@@ -30,7 +20,7 @@ THRESHOLDS = {
 VITAL_SIGNS = list(THRESHOLDS.keys())
 
 
-# ── Priority classification ───────────────────────────────────────────────────
+# Priority classification 
 def classify_priority(vital, value):
     """
     Returns 1 (critical), 2 (urgent), or 3 (routine).
@@ -63,22 +53,10 @@ def generate_sensor_reading(vital, critical_prob=0.05, urgent_prob=0.15):
         return np.random.uniform(t["lo"], t["hi"])
 
 
-# ── Centralised reward function ───────────────────────────────────────────────
+# Centralised reward function 
 def compute_reward(outcome, task, alpha=0.6, beta=0.4, lam=50.0):
     """
     CENTRALISED reward function — import and call this from ALL scripts.
-    (train.py, evaluate.py, scaled_exp.py — no inline reward formulas.)
-
-    r_t = -[ alpha * w_i * T_norm  +  beta * E_norm  +  lambda * violation ]
-
-    where:
-        w_i     = 4 - P_i  in {1,2,3}  (3 = critical, highest penalty)
-        T_norm  = clipped(T / T_max, 3.0)   — normalised completion time
-        E_norm  = clipped(E / 0.5, 1.0)     — normalised energy
-        lam     = 50  — large deadline-violation penalty
-
-    Clipping keeps all terms in comparable scales so the agent can
-    distinguish good from bad decisions without one term dominating.
     """
     priority_weight   = 4 - task["priority"]          # 3, 2, or 1
     time_ratio        = min(outcome["time"] / task["deadline"], 3.0)
@@ -89,7 +67,7 @@ def compute_reward(outcome, task, alpha=0.6, beta=0.4, lam=50.0):
     return -(latency_penalty + energy_penalty + violation_penalty)
 
 
-# ── SNR → uplink rate conversion (Shannon capacity) ──────────────────────────
+# SNR → uplink rate conversion (Shannon capacity)
 def snr_to_rate(snr_linear):
     """
     Shannon capacity: R = B * log2(1 + SNR)
@@ -104,15 +82,9 @@ def db_to_linear(snr_db):
     return 10.0 ** (snr_db / 10.0)
 
 
-# ── IoMT Device ───────────────────────────────────────────────────────────────
+# IoMT Device 
 class IoMTDevice:
-    """
-    One wearable IoMT device (ECG patch, glucose sensor, etc.).
-    Battery, CPU frequency, and transmission power are fixed per device.
-    Uplink rate is now determined dynamically from SNR at each time step
-    rather than being a fixed random value — making channel quality
-    a meaningful signal for the RL agent.
-    """
+   
     def __init__(self, device_id, env):
         self.id        = device_id
         self.env       = env
@@ -125,11 +97,7 @@ class IoMTDevice:
         self.current_uplink_rate = 15e6   # default fallback (15 Mbps)
 
     def generate_task(self):
-        """
-        Creates one IoMT task from a physiological reading.
-        Computation demand and deadline are scaled by priority tier
-        so critical tasks are always physically achievable locally.
-        """
+      
         vital    = np.random.choice(VITAL_SIGNS)
         value    = generate_sensor_reading(vital)
         priority = classify_priority(vital, value)
@@ -166,38 +134,24 @@ class IoMTDevice:
         }
 
 
-# ── MEC Server ────────────────────────────────────────────────────────────────
+# MEC Server 
 class MECServer:
-    """
-    One Mobile Edge Computing server.
-    CPU frequency is fixed; load fluctuates each time step.
-    """
+   
     def __init__(self, server_id):
         self.id       = server_id
         self.cpu_freq = np.random.uniform(5e9, 10e9)   # 5–10 GHz
         self.load     = np.random.uniform(0.1, 0.5)    # initial load
 
     def available_freq(self):
-        """Effective available CPU after accounting for current load."""
         return self.cpu_freq * (1.0 - self.load)
 
     def get_state_features(self):
         return {"load": self.load, "cpu_freq": self.cpu_freq / 1e9}
 
 
-# ── SDN Controller ────────────────────────────────────────────────────────────
+# SDN Controller 
 class SDNController:
-    """
-    The SDN controller — assembles the global MDP state and executes
-    offloading decisions by computing energy and completion time outcomes.
-
-    FIX: SNR values are now drawn once per time step in get_global_state()
-    and stored on the device so that compute_outcome() uses the SAME
-    channel conditions that the agent observed when selecting its action.
-    Previously SNR was redrawn independently in both functions, creating
-    phantom state noise that prevented Dueling DQN from learning stable
-    value estimates.
-    """
+    
     def __init__(self, devices, mec_servers):
         self.devices     = devices
         self.mec_servers = mec_servers
@@ -210,22 +164,7 @@ class SDNController:
         self._current_rates     = [snr_to_rate(db_to_linear(20.0))] * len(mec_servers)
 
     def get_global_state(self, task):
-        """
-        Builds the MDP state vector s_t.
-        State dimensions (STATE_SIZE = 7 + N_MEC + N_MEC):
-          [0]   battery level
-          [1]   device CPU freq (GHz)
-          [2]   queue depth (normalised)
-          [3]   task data size (normalised)
-          [4]   task CPU cycles (normalised)
-          [5]   task priority (normalised: 1/3, 2/3, 1.0)
-          [6]   task deadline (normalised by 5s max)
-          [7..7+N_MEC-1]       MEC server loads
-          [7+N_MEC..end]       SNR values (normalised, 0–1)
 
-        SNR is drawn ONCE here and stored on self so that compute_outcome()
-        uses identical channel conditions for the same time step.
-        """
         dev = self.devices[task["device_id"]]
         dev_feats = dev.get_state_features()
 
@@ -236,7 +175,7 @@ class SDNController:
         self._current_rates      = [snr_to_rate(sl) for sl in self._current_snr_linear]
 
         # Update the device's current uplink rate from the best available SNR
-        # (the agent will choose which MEC to use; the device rate reflects
+        # (the agentwill choose which MEC to use; the device rate reflects
         #  the average channel quality it currently experiences)
         dev.current_uplink_rate = float(np.mean(self._current_rates))
 
@@ -259,19 +198,7 @@ class SDNController:
         return state
 
     def compute_outcome(self, task, action):
-        """
-        Executes the offloading action and returns energy, time, and
-        violation flag.
-
-        FIX: transmission calculations now use the SNR-derived uplink rate
-        stored from get_global_state() rather than the device's fixed random
-        uplink_rate. This means the agent's SNR observations in the state
-        actually determine what happens — closing the loop.
-
-        action 0         → local execution on device
-        action 1,2,3     → MEC server (1-indexed)
-        action 4         → cloud offloading
-        """
+      
         dev = self.devices[task["device_id"]]
         D   = task["data_size"]     # bits
         C   = task["cpu_cycles"]    # CPU cycles
@@ -291,7 +218,7 @@ class SDNController:
             time     = tx_time + proc_time
 
         else:
-            # Cloud offloading — WAN rate is slower and variable
+            # Cloud offloading — WAN rate isslower and variable
             wan_rate = np.random.uniform(5e6, 15e6)
             energy   = dev.tx_power * (D / dev.current_uplink_rate)
             time     = (D / wan_rate) + self.wan_delay + (C / CLOUD_CPU_HZ)
@@ -301,7 +228,7 @@ class SDNController:
         # Update device battery
         dev.battery = max(0.0, dev.battery - energy * 1e-5)
 
-        # Fluctuate MEC loads to simulate dynamic network conditions
+        # fluctuate MEC loads to simulate dynamic network conditions
         for server in self.mec_servers:
             server.load = np.clip(
                 server.load + np.random.uniform(-0.03, 0.03), 0.05, 0.65
@@ -315,7 +242,7 @@ class SDNController:
         }
 
 
-# ── Environment factory ───────────────────────────────────────────────────────
+# Environment factory 
 def build_environment(n_devices=20, n_mec=3):
     """Creates and returns the full IoMT simulation environment."""
     env         = simpy.Environment()
